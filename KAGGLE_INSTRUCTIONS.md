@@ -15,52 +15,28 @@ This guide provides step-by-step instructions for running the Bangla BERT Hate S
     - Select "Python" as the language.
     - Select "GPU P100" (or T4 x2) as the accelerator for faster training.
 
-2.  **Upload Data**:
-    - In the "Data" pane (right side), click "Add Data".
-    - Upload your `data.csv` file.
-    - Note the path to the uploaded file (usually `/kaggle/input/<dataset-name>/data.csv`).
-
-3.  **Upload Code**:
-    - You have two options:
-        - **Option A (Upload)**: Upload the entire `src` folder and `data` folder (if needed) as a dataset and add it to your notebook.
-        - **Option B (Clone)**: Clone the repository directly in the notebook cell (if public) or copy-paste the code.
-    - *Recommended*: Upload the `src` folder as a dataset so you can import modules easily.
-
-## Step 2: Environment Setup
-
-Kaggle kernels come with most deep learning libraries pre-installed (PyTorch, Transformers, Pandas, NumPy). You might need to install `mlflow` if it's not available, or update `transformers`.
-
-Run this in the first cell:
+2.  **Clone the Repository & Install Dependencies**:
+    - In the first cell of your notebook, run the following command to clone the repository and install all required packages (including those for quantization):
 
 ```python
-!pip install -q mlflow
+!git clone https://github.com/AnnNaserNabil/BanglaHeteSpeech-DPQ.git
+%cd BanglaHeteSpeech-DPQ
+!pip install -q mlflow bitsandbytes accelerate scikit-learn pandas tqdm
 # !pip install -q transformers --upgrade  # Uncomment if you need the latest version
 ```
 
-## Step 3: Directory Structure
+## Step 2: Verify Setup
 
-Ensure your directory structure in the Kaggle working directory looks like this (you may need to move files if you uploaded them as a dataset):
-
-```
-/kaggle/working/
-├── src/
-│   ├── main.py
-│   ├── config.py
-│   ├── pipeline.py
-│   └── ... (other modules)
-└── data.csv (or link to input)
-```
-
-If you uploaded code as a dataset, you might need to add it to the system path:
+After cloning, your working directory should be `/kaggle/working/BanglaHeteSpeech-DPQ`.
+Verify the dataset exists:
 
 ```python
-import sys
-sys.path.append('/kaggle/input/<your-code-dataset-name>/src')
+!ls data/HateSpeech.csv
 ```
 
-## Step 4: Running the Pipeline
+## Step 3: Running the Pipeline
 
-You can run the pipeline using the `!python` command. Below are examples with **all available arguments** explicitly listed. You can remove or modify them as needed.
+You can run the pipeline using the `!python` command. The entry point is `src/main.py`.
 
 ### 1. Baseline Training (Full Arguments)
 
@@ -69,7 +45,7 @@ This runs the standard rigorous K-Fold training.
 ```bash
 !python src/main.py \
     --pipeline baseline \
-    --dataset_path /kaggle/input/<your-dataset>/data.csv \
+    --dataset_path data/HateSpeech.csv \
     --author_name "YourName" \
     --mlflow_experiment_name "Bangla-HateSpeech-Baseline" \
     --model_path "sagorsarker/bangla-bert-base" \
@@ -96,7 +72,7 @@ Trains a smaller student model to mimic the teacher.
 ```bash
 !python src/main.py \
     --pipeline baseline_kd \
-    --dataset_path /kaggle/input/<your-dataset>/data.csv \
+    --dataset_path data/HateSpeech.csv \
     --author_name "YourName" \
     --mlflow_experiment_name "Bangla-HateSpeech-KD" \
     --model_path "sagorsarker/bangla-bert-base" \
@@ -127,7 +103,7 @@ Prunes the model to reduce size/complexity.
 ```bash
 !python src/main.py \
     --pipeline baseline_prune \
-    --dataset_path /kaggle/input/<your-dataset>/data.csv \
+    --dataset_path data/HateSpeech.csv \
     --author_name "YourName" \
     --mlflow_experiment_name "Bangla-HateSpeech-Pruning" \
     --model_path "sagorsarker/bangla-bert-base" \
@@ -156,7 +132,7 @@ Quantizes the model to lower precision (e.g., INT8).
 ```bash
 !python src/main.py \
     --pipeline baseline_quant \
-    --dataset_path /kaggle/input/<your-dataset>/data.csv \
+    --dataset_path data/HateSpeech.csv \
     --author_name "YourName" \
     --mlflow_experiment_name "Bangla-HateSpeech-Quantization" \
     --model_path "sagorsarker/bangla-bert-base" \
@@ -178,7 +154,7 @@ Runs the complete compression pipeline.
 ```bash
 !python src/main.py \
     --pipeline baseline_kd_prune_quant \
-    --dataset_path /kaggle/input/<your-dataset>/data.csv \
+    --dataset_path data/HateSpeech.csv \
     --author_name "YourName" \
     --mlflow_experiment_name "Bangla-HateSpeech-FullPipeline" \
     --model_path "sagorsarker/bangla-bert-base" \
