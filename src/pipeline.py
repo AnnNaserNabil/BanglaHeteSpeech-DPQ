@@ -341,7 +341,19 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
     from data import HateSpeechDataset
     from torch.utils.data import DataLoader, random_split
     
-    dataset = HateSpeechDataset(comments, labels, tokenizer, config.max_length)
+    # Load student tokenizer if different from teacher
+    student_tokenizer = None
+    if config.student_path != config.model_path:
+        print(f"Loading separate tokenizer for student: {config.student_path}")
+        student_tokenizer = AutoTokenizer.from_pretrained(config.student_path)
+    
+    dataset = HateSpeechDataset(
+        comments, 
+        labels, 
+        tokenizer, 
+        config.max_length,
+        student_tokenizer=student_tokenizer
+    )
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])

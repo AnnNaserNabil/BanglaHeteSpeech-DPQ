@@ -20,19 +20,21 @@ class HateSpeechDataset(Dataset):
     Handles tokenization and label conversion for binary classification.
     """
 
-    def __init__(self, comments, labels, tokenizer, max_length=128):
+    def __init__(self, comments, labels, tokenizer, max_length=128, student_tokenizer=None):
         """
         Initialize the dataset.
 
         Args:
             comments: Array of text comments
             labels: Array of binary labels (0 or 1)
-            tokenizer: HuggingFace tokenizer
+            tokenizer: HuggingFace tokenizer (for Teacher/Baseline)
             max_length: Maximum sequence length for tokenization
+            student_tokenizer: Optional second tokenizer for Student model (if different)
         """
         self.comments = comments
         self.labels = labels.astype(np.float32) if isinstance(labels, np.ndarray) else labels
         self.tokenizer = tokenizer
+        self.student_tokenizer = student_tokenizer
         self.max_length = max_length
 
     def __len__(self):
@@ -42,6 +44,7 @@ class HateSpeechDataset(Dataset):
         comment = str(self.comments[idx])
         label = self.labels[idx]  # Single float (0 or 1)
 
+        # Tokenize for Teacher (or single model)
         encoding = self.tokenizer(
             comment,
             truncation=True,
@@ -50,11 +53,25 @@ class HateSpeechDataset(Dataset):
             return_tensors='pt'
         )
 
-        return {
+        item = {
             'input_ids': encoding['input_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten(),
-            'labels': torch.tensor(label, dtype=torch.float)  # Single float
+            'labels': torch.tensor(label, dtype=torch.float)
         }
+
+        # Tokenize for Student (if different tokenizer provided)
+        if self.student_tokenizer:
+            student_encoding = self.student_tokenizer(
+                comment,
+                truncation=True,
+                padding='max_length',
+                max_length=self.max_length,
+                return_tensors='pt'
+            )
+            item['student_input_ids'] = student_encoding['input_ids'].flatten()
+            item['student_attention_mask'] = student_encoding['attention_mask'].flatten()
+
+        return item
 
 
 def load_and_preprocess_data(dataset_path):
