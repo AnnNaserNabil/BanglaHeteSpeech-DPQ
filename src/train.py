@@ -21,10 +21,24 @@ def cache_dataset(comments, labels, tokenizer, max_length, cache_file):
     if os.path.exists(cache_file):
         print(f"Loading cached dataset from {cache_file}")
         with open(cache_file, 'rb') as f:
-            return pickle.load(f)
+            dataset = pickle.load(f)
+            
+        # Basic validation: check if number of samples matches
+        if len(dataset) != len(comments):
+            print(f"⚠️  WARNING: Cached dataset size ({len(dataset)}) does not match current data size ({len(comments)}).")
+            print(f"   This usually happens if you changed the dataset or data_fraction.")
+            print(f"   Forcing recreation of cache...")
+        elif hasattr(dataset, 'tokenizer_name') and dataset.tokenizer_name != getattr(tokenizer, 'name_or_path', None):
+            print(f"⚠️  WARNING: Cached dataset was created with a different tokenizer ({dataset.tokenizer_name})")
+            print(f"   than the current one ({getattr(tokenizer, 'name_or_path', 'unknown')}).")
+            print(f"   Forcing recreation of cache to avoid incorrect tokenization.")
+        else:
+            return dataset
     
     print(f"Creating and caching dataset to {cache_file}")
     dataset = HateSpeechDataset(comments, labels, tokenizer, max_length)
+    # Store tokenizer info for future validation
+    dataset.tokenizer_name = getattr(tokenizer, 'name_or_path', None)
     
     # Ensure cache directory exists
     cache_dir = os.path.dirname(cache_file)

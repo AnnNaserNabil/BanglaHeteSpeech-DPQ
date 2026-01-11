@@ -76,6 +76,18 @@ def main():
         print("📚 RUNNING BASELINE TRAINING ONLY")
         print("="*70)
         print("This is the original rigorous k-fold training methodology.")
+        
+        if config.data_fraction < 1.0:
+            print(f"\n" + "!"*70)
+            print(f"⚠️  CRITICAL WARNING: DATA FRACTION IS SET TO {config.data_fraction}")
+            print(f"   This will use only {len(comments)} samples out of the full dataset.")
+            print(f"   This is likely why your accuracy is lower (~0.83) than expected (>0.87).")
+            print(f"   For full performance comparison, set --data_fraction 1.0")
+            print("!"*70 + "\n")
+            
+        print(f"\n💡 TIP: If performance is still unexpectedly low, the cache might be stale.")
+        print(f"   Run: rm -rf {config.cache_dir}")
+        print(f"   This ensures the dataset is re-tokenized for the current model.")
         print("="*70 + "\n")
         
         results = run_kfold_training(config, comments, labels, tokenizer, device)
