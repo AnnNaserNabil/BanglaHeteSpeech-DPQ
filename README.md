@@ -40,48 +40,31 @@ pip install -r requirements.txt
 ### Baseline Training Only
 
 ```bash
-python src/main.py \
-    --dataset_path data/hate_speech.csv \
-    --model_path sagorsarker/bangla-bert-base \
-    --author_name researcher \
-    --pipeline baseline \
-    --batch 32 \
-    --lr 2e-5 \
-    --epochs 15 \
-    --num_folds 5
+python
+
+
+
+
 ```
 
 ### Baseline + Knowledge Distillation
 
 ```bash
-python src/main.py \
-    --dataset_path data/hate_speech.csv \
-    --model_path sagorsarker/bangla-bert-base \
-    --student_path distilbert-base-multilingual-cased \
-    --author_name researcher \
-    --pipeline baseline_kd \
-    --kd_alpha 0.7 \
-    --kd_temperature 4.0 \
-    --save_huggingface \
-    --output_dir ./models/kd_model
+python
+
+
+
+
 ```
 
 ### Full Compression Pipeline
 
 ```bash
-python src/main.py \
-    --dataset_path data/hate_speech.csv \
-    --model_path sagorsarker/bangla-bert-base \
-    --student_path distilbert-base-multilingual-cased \
-    --author_name researcher \
-    --pipeline baseline_kd_prune_quant \
-    --kd_alpha 0.7 \
-    --kd_temperature 4.0 \
-    --prune_method magnitude \
-    --prune_sparsity 0.5 \
-    --quant_method dynamic \
-    --save_huggingface \
-    --output_dir ./models/compressed_model
+python
+
+
+
+
 ```
 
 ## Pipeline Modes
