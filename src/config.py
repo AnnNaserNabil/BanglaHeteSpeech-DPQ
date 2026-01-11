@@ -218,8 +218,8 @@ def parse_arguments():
         raise ValueError("Learning rate must be positive")
     if args.epochs <= 0:
         raise ValueError("Number of epochs must be positive")
-    if args.num_folds < 2:
-        raise ValueError("Number of folds must be at least 2")
+    if args.num_folds < 1:
+        raise ValueError("Number of folds must be at least 1")
     if args.dropout < 0 or args.dropout >= 1:
         raise ValueError("Dropout must be between 0 and 1")
     if args.warmup_ratio < 0 or args.warmup_ratio > 1:
