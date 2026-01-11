@@ -346,7 +346,7 @@ def quantize_model(
     
     Args:
         model: Model to quantize
-        method: 'dynamic', 'static', 'qat', or 'fp16'
+        method: 'dynamic', 'static', 'qat', 'fp16', or 'int4'
         config: Configuration with quantization parameters
         calibration_loader: DataLoader for calibration (static only)
         device: Device to put quantized model on
@@ -354,6 +354,9 @@ def quantize_model(
     Returns:
         Quantized model
     """
+    if method == 'int4':
+        return apply_int4_quantization(model, device)
+
     manager = QuantizationManager(model, method=method, dtype=config.quant_dtype)
     
     if method == 'dynamic':

@@ -528,20 +528,16 @@ def _run_quantization_stage(model, comments, labels, tokenizer, config, device, 
     loader = DataLoader(dataset, batch_size=config.batch, shuffle=False, num_workers=2)
     
     # Apply quantization
-    if config.quant_method == 'int4':
-        quantized_model = apply_int4_quantization(model)
-    else:
-        # Apply quantization
-        print(f"\n📉 Applying {config.quant_method} quantization...")
-        
-        quantized_model = quantize_model(
-            model,
-            config.quant_method,
-            config,
-            calibration_loader=loader if config.quant_method == 'static' else None,
-            device=device,
-            use_student_input_ids=True
-        )
+    print(f"\n📉 Applying {config.quant_method} quantization...")
+    
+    quantized_model = quantize_model(
+        model,
+        config.quant_method,
+        config,
+        calibration_loader=loader if config.quant_method == 'static' else None,
+        device=device,
+        use_student_input_ids=True
+    )
     
     # Evaluate (on CPU for quantized models)
     eval_device = 'cpu' if config.quant_method in ['dynamic', 'static'] else device
