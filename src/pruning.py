@@ -869,9 +869,9 @@ def fine_tune_after_pruning(
                     labels = batch['labels'].to(device)
                     
                     outputs = model(input_ids, attention_mask)
-                    preds = (torch.sigmoid(outputs['logits']) > 0.5).cpu().numpy()
+                    preds = (torch.sigmoid(outputs['logits']) > 0.5).cpu().numpy().flatten()
                     train_preds.extend(preds)
-                    train_labels.extend(labels.cpu().numpy())
+                    train_labels.extend(labels.cpu().numpy().flatten())
             
             train_acc = accuracy_score(train_labels, train_preds)
             train_prec_hate = precision_score(train_labels, train_preds, pos_label=1, zero_division=0)
@@ -896,7 +896,7 @@ def fine_tune_after_pruning(
                             input_ids = batch['input_ids'].to(device)
                             attention_mask = batch['attention_mask'].to(device)
                         outputs = model(input_ids, attention_mask)
-                        probs = torch.sigmoid(outputs['logits']).cpu().numpy()
+                        probs = torch.sigmoid(outputs['logits']).cpu().numpy().flatten()
                         train_probs.extend(probs)
                 train_roc_auc = roc_auc_score(train_labels, train_probs)
             except:
@@ -914,6 +914,11 @@ def fine_tune_after_pruning(
                         input_ids = batch['input_ids'].to(device)
                         attention_mask = batch['attention_mask'].to(device)
                     labels = batch['labels'].to(device)
+                    if hasattr(model, 'num_labels') and model.num_labels == 1:
+                        labels = labels.view(-1, 1)
+                    elif hasattr(model, 'module') and hasattr(model.module, 'num_labels') and model.module.num_labels == 1:
+                        labels = labels.view(-1, 1)
+                    
                     outputs = model(input_ids, attention_mask)
                     loss = loss_fn_val(outputs['logits'], labels)
                     val_loss += loss.item()
