@@ -420,11 +420,19 @@ def _run_pruning_stage(model, comments, labels, tokenizer, config, device, model
     print(f"Method: {config.prune_method}")
     print(f"Target Sparsity: {config.prune_sparsity*100:.0f}%")
     
-    # Create dataset
-    from data import HateSpeechDataset
-    from torch.utils.data import DataLoader, random_split
+    # Load student tokenizer if different from teacher
+    student_tokenizer = None
+    if config.student_path != config.model_path:
+        print(f"Loading separate tokenizer for student: {config.student_path}")
+        student_tokenizer = AutoTokenizer.from_pretrained(config.student_path)
     
-    dataset = HateSpeechDataset(comments, labels, tokenizer, config.max_length)
+    dataset = HateSpeechDataset(
+        comments, 
+        labels, 
+        tokenizer, 
+        config.max_length,
+        student_tokenizer=student_tokenizer
+    )
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -468,8 +476,14 @@ def _run_pruning_stage(model, comments, labels, tokenizer, config, device, model
     
     with torch.no_grad():
         for batch in val_loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
+            # Handle dual tokenization
+            if 'student_input_ids' in batch:
+                input_ids = batch['student_input_ids'].to(device)
+                attention_mask = batch['student_attention_mask'].to(device)
+            else:
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                
             outputs = model(input_ids, attention_mask)
             logits = outputs['logits'] if isinstance(outputs, dict) else outputs
             preds = torch.sigmoid(logits).cpu().numpy()
@@ -501,7 +515,19 @@ def _run_quantization_stage(model, comments, labels, tokenizer, config, device, 
     from data import HateSpeechDataset
     from torch.utils.data import DataLoader
     
-    dataset = HateSpeechDataset(comments, labels, tokenizer, config.max_length)
+    # Load student tokenizer if different from teacher
+    student_tokenizer = None
+    if config.student_path != config.model_path:
+        print(f"Loading separate tokenizer for student: {config.student_path}")
+        student_tokenizer = AutoTokenizer.from_pretrained(config.student_path)
+        
+    dataset = HateSpeechDataset(
+        comments, 
+        labels, 
+        tokenizer, 
+        config.max_length,
+        student_tokenizer=student_tokenizer
+    )
     loader = DataLoader(dataset, batch_size=config.batch, shuffle=False, num_workers=2)
     
     # Apply quantization
@@ -529,8 +555,14 @@ def _run_quantization_stage(model, comments, labels, tokenizer, config, device, 
     
     with torch.no_grad():
         for batch in loader:
-            input_ids = batch['input_ids'].to(eval_device)
-            attention_mask = batch['attention_mask'].to(eval_device)
+            # Handle dual tokenization
+            if 'student_input_ids' in batch:
+                input_ids = batch['student_input_ids'].to(eval_device)
+                attention_mask = batch['student_attention_mask'].to(eval_device)
+            else:
+                input_ids = batch['input_ids'].to(eval_device)
+                attention_mask = batch['attention_mask'].to(eval_device)
+                
             outputs = quantized_model(input_ids, attention_mask)
             logits = outputs['logits'] if isinstance(outputs, dict) else outputs
             preds = torch.sigmoid(logits).cpu().numpy()

@@ -530,8 +530,13 @@ class WandaPruner(PruningManager):
                 if samples_seen >= num_samples:
                     break
                 
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
+                # Handle dual tokenization
+                if 'student_input_ids' in batch:
+                    input_ids = batch['student_input_ids'].to(device)
+                    attention_mask = batch['student_attention_mask'].to(device)
+                else:
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
                 
                 # Forward pass (hooks will capture activations)
                 self.model(input_ids, attention_mask)

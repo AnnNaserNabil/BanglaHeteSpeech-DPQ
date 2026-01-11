@@ -262,7 +262,7 @@ class TeacherModel(nn.Module):
         else:
             # Assume it's a HuggingFace model path
             # Need to create fresh model and load weights differently
-            model = cls(model_name=load_path, num_labels=5, **kwargs)
+            model = cls(model_name=load_path, num_labels=num_labels, **kwargs)
         
         return model.to(device)
 
@@ -406,7 +406,7 @@ class StudentModel(nn.Module):
             model.classifier.load_state_dict(classifier_state)
         else:
             # HuggingFace path
-            model = cls(model_name=load_path, num_labels=5, **kwargs)
+            model = cls(model_name=load_path, num_labels=num_labels, **kwargs)
         
         return model.to(device)
 
@@ -785,18 +785,18 @@ class DistillationTrainer:
         if self.student.num_labels == 1:
             labels = labels.view(-1, 1)
         
-        # Get teacher outputs (no gradients!)
-        with torch.no_grad():
-            teacher_outputs = self.teacher(
-                t_input_ids, t_attention_mask,
-                output_hidden_states=self.output_hidden,
-                output_attentions=self.output_attention
-            )
-            
         # Forward pass with optional mixed precision
         if self.use_amp:
             from torch.cuda.amp import autocast
             with autocast():
+                # Get teacher outputs (no gradients!)
+                with torch.no_grad():
+                    teacher_outputs = self.teacher(
+                        t_input_ids, t_attention_mask,
+                        output_hidden_states=self.output_hidden,
+                        output_attentions=self.output_attention
+                    )
+                
                 student_outputs = self.student(
                     s_input_ids, s_attention_mask,
                     output_hidden_states=self.output_hidden,
@@ -815,6 +815,14 @@ class DistillationTrainer:
             self.scaler.update()
         else:
             # Standard forward/backward
+            # Get teacher outputs (no gradients!)
+            with torch.no_grad():
+                teacher_outputs = self.teacher(
+                    t_input_ids, t_attention_mask,
+                    output_hidden_states=self.output_hidden,
+                    output_attentions=self.output_attention
+                )
+                
             student_outputs = self.student(
                 s_input_ids, s_attention_mask,
                 output_hidden_states=self.output_hidden,
