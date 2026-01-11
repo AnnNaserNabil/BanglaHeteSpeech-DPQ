@@ -599,11 +599,16 @@ def _print_pipeline_summary(results, config):
     print("-" * 70)
     
     for stage_name, stage_results in stages:
-        if isinstance(stage_results, list):  # Baseline returns fold results
+        if isinstance(stage_results, list):  # Old format compatibility
             # Get mean from fold results
             acc = np.mean([r.get('accuracy', 0) for r in stage_results])
             macro_f1 = np.mean([r.get('macro_f1', 0) for r in stage_results])
             f1 = np.mean([r.get('f1', 0) for r in stage_results])
+        elif isinstance(stage_results, dict) and 'best_metrics' in stage_results:
+            # New format from run_kfold_training
+            acc = stage_results['best_metrics'].get('accuracy', 0)
+            macro_f1 = stage_results['best_metrics'].get('macro_f1', 0)
+            f1 = stage_results['best_metrics'].get('f1', 0)
         else:
             acc = stage_results.get('accuracy', 0)
             macro_f1 = stage_results.get('macro_f1', 0)
@@ -628,6 +633,8 @@ def _create_pipeline_summary_df(results):
                 'f1_negative': np.mean([r.get('f1_negative', 0) for r in results['baseline']]),
                 'roc_auc': np.mean([r.get('roc_auc', 0) for r in results['baseline']])
             }
+        elif isinstance(results['baseline'], dict) and 'best_metrics' in results['baseline']:
+            baseline_metrics = results['baseline']['best_metrics']
         else:
             baseline_metrics = results['baseline']
         
