@@ -286,8 +286,4 @@ If you use this framework, please cite:
 
 MIT License
 
-## Acknowledgments
 
-- Original baseline training methodology from Finetune-Bangla-BERT project
-- Compression techniques adapted from root folder pipeline
-- Enhanced metrics and modular architecture designed for research flexibility
