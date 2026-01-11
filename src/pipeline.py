@@ -26,7 +26,8 @@ import gc
 from typing import Dict, Tuple, Optional
 
 # Local imports
-from data import load_and_preprocess_data, prepare_kfold_splits, calculate_class_weights
+from data import load_and_preprocess_data, prepare_kfold_splits, calculate_class_weights, HateSpeechDataset
+from torch.utils.data import DataLoader, random_split
 from model import TransformerBinaryClassifier
 from metrics import (
     calculate_metrics_with_threshold_exploration,
@@ -338,8 +339,6 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
     ).to(device)
     
     # Create datasets
-    from data import HateSpeechDataset
-    from torch.utils.data import DataLoader, random_split
     
     # Load student tokenizer if different from teacher
     student_tokenizer = None
@@ -512,8 +511,6 @@ def _run_quantization_stage(model, comments, labels, tokenizer, config, device, 
     print(f"Method: {config.quant_method}")
     
     # Create dataset for evaluation
-    from data import HateSpeechDataset
-    from torch.utils.data import DataLoader
     
     # Load student tokenizer if different from teacher
     student_tokenizer = None
