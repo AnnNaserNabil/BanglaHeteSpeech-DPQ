@@ -105,6 +105,8 @@ def parse_arguments():
     parser.add_argument('--stratification_type', type=str, default='binary',
                        choices=['binary', 'none'],
                        help='Type of stratification for K-fold splitting.')
+    parser.add_argument('--data_fraction', type=float, default=1.0,
+                       help='Fraction of data to use for training (0.0-1.0).')
 
     # =========================================================================
     # MODEL PARAMETERS
@@ -226,6 +228,8 @@ def parse_arguments():
         raise ValueError("KD alpha must be between 0 and 1")
     if args.prune_sparsity < 0 or args.prune_sparsity >= 1:
         raise ValueError("Prune sparsity must be between 0 and 1")
+    if args.data_fraction <= 0 or args.data_fraction > 1:
+        raise ValueError("Data fraction must be between 0 and 1")
 
     # Apply pipeline configuration
     _apply_pipeline_config(args)

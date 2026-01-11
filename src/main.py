@@ -44,6 +44,23 @@ def main():
     # Load and preprocess data
     comments, labels = load_and_preprocess_data(config.dataset_path)
 
+    # Apply data fraction if specified
+    if config.data_fraction < 1.0:
+        import numpy as np
+        num_samples = len(comments)
+        num_to_keep = int(num_samples * config.data_fraction)
+        print(f"\n✂️  Applying data fraction: {config.data_fraction} ({num_to_keep}/{num_samples} samples)")
+        
+        # Use a fixed seed for slicing if provided in config to ensure reproducibility
+        indices = np.arange(num_samples)
+        np.random.seed(config.seed)
+        np.random.shuffle(indices)
+        
+        selected_indices = indices[:num_to_keep]
+        comments = comments[selected_indices]
+        labels = labels[selected_indices]
+        print(f"✅ Data sliced successfully. New total: {len(comments)}")
+
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if torch.cuda.is_available():
