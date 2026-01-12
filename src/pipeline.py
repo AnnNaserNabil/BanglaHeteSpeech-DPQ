@@ -16,6 +16,7 @@ with enhanced metrics calculation at every stage.
 import os
 import torch
 import torch.nn as nn
+import copy
 from torch.optim import AdamW
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 import numpy as np
@@ -374,6 +375,7 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
     # Training loop with enhanced metrics
     best_macro_f1 = 0
     best_metrics = {}
+    best_student_state = None
     
     for epoch in range(config.epochs):
         # Train
@@ -402,6 +404,11 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
         if metrics['macro_f1'] > best_macro_f1:
             best_macro_f1 = metrics['macro_f1']
             best_metrics = metrics.copy()
+            best_student_state = copy.deepcopy(student.state_dict())
+    
+    # Load best state before returning
+    if best_student_state is not None:
+        student.load_state_dict(best_student_state)
     
     return {
         'student_model': student,

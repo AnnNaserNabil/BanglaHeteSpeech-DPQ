@@ -129,6 +129,17 @@ def parse_arguments():
                        help='Maximum norm for gradient clipping.')
     parser.add_argument('--early_stopping_patience', type=int, default=5,
                        help='Number of epochs without improvement before early stopping.')
+    parser.add_argument('--use_class_weights', action='store_true',
+                       help='Use class weights to handle imbalance.')
+    parser.add_argument('--scheduler_type', type=str, default='linear',
+                       choices=['linear', 'cosine'],
+                       help='Type of learning rate scheduler.')
+    parser.add_argument('--loss_type', type=str, default='bce',
+                       choices=['bce', 'focal'],
+                       help='Type of loss function.')
+    parser.add_argument('--pooling_type', type=str, default='cls',
+                       choices=['cls', 'mean', 'max'],
+                       help='Type of pooling for transformer outputs.')
 
     # =========================================================================
     # MLFLOW PARAMETERS
@@ -204,7 +215,7 @@ def parse_arguments():
     # =========================================================================
     parser.add_argument('--output_dir', type=str, default='./outputs',
                        help='Output directory for models and results.')
-    parser.add_argument('--save_huggingface', action='store_true',
+    parser.add_argument('--save_huggingface', action='store_true', default=True,
                        help='Save final model in HuggingFace format.')
     parser.add_argument('--cache_dir', type=str, default='./cache',
                        help='Cache directory for tokenized data.')
@@ -277,6 +288,10 @@ def print_config(config):
     print(f"   Learning Rate:           {config.lr}")
     print(f"   Max Epochs:              {config.epochs}")
     print(f"   Early Stopping Patience: {config.early_stopping_patience}")
+    print(f"   Use Class Weights:       {'✓' if config.use_class_weights else '✗'}")
+    print(f"   Scheduler Type:          {config.scheduler_type}")
+    print(f"   Loss Type:               {config.loss_type}")
+    print(f"   Pooling Type:            {config.pooling_type}")
     
     # Model Parameters
     print("\n🤖 Model Parameters:")

@@ -19,11 +19,12 @@ Usage:
 
 from transformers import AutoTokenizer
 import torch
+import os
 from config import parse_arguments, print_config
 from data import load_and_preprocess_data
 from train import run_kfold_training
 from pipeline import run_compression_pipeline
-from utils import set_seed
+from utils import set_seed, save_model_for_huggingface
 
 
 def main():
@@ -91,6 +92,21 @@ def main():
         print("="*70 + "\n")
         
         results = run_kfold_training(config, comments, labels, tokenizer, device)
+        
+        # Save for HuggingFace if requested
+        if config.save_huggingface:
+            print("\n🤗 Saving best baseline model for HuggingFace...")
+            from model import TransformerBinaryClassifier
+            best_model = TransformerBinaryClassifier(
+                config.model_path, 
+                dropout=config.dropout,
+                pooling_type=config.pooling_type,
+                use_multi_layers=(config.pooling_type == 'multi')
+            )
+            best_model.load_state_dict(torch.load(results['best_model_path']))
+            
+            output_path = os.path.join(config.output_dir, "final_baseline_best")
+            save_model_for_huggingface(best_model, tokenizer, output_path, vars(config))
         
         print("\n" + "="*70)
         print("✅ BASELINE TRAINING COMPLETED SUCCESSFULLY!")

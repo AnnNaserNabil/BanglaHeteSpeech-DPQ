@@ -1,5 +1,6 @@
 import pickle
 import os
+import copy
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -15,6 +16,24 @@ import time
 from data import HateSpeechDataset, calculate_class_weights, prepare_kfold_splits
 from model import TransformerBinaryClassifier
 from utils import get_model_metrics, print_fold_summary, print_experiment_summary
+from transformers import get_cosine_schedule_with_warmup
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, pos_weight=None):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.pos_weight = pos_weight
+
+    def forward(self, inputs, targets):
+        if self.pos_weight is not None:
+            BCE_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, pos_weight=self.pos_weight, reduction='none')
+        else:
+            BCE_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        
+        pt = torch.exp(-BCE_loss)
+        F_loss = self.alpha * (1 - pt)**self.gamma * BCE_loss
+        return torch.mean(F_loss)
 
 def cache_dataset(comments, labels, tokenizer, max_length, cache_file):
     """Cache dataset to avoid reprocessing"""
@@ -121,9 +140,14 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, class_weights=N
     scaler = GradScaler()
 
     if class_weights is not None:
-        loss_fct = nn.BCEWithLogitsLoss(pos_weight=class_weights.to(device))
+        pos_weight = class_weights.to(device)
     else:
-        loss_fct = nn.BCEWithLogitsLoss()
+        pos_weight = None
+
+    if getattr(optimizer, 'loss_type', 'bce') == 'focal':
+        loss_fct = FocalLoss(pos_weight=pos_weight)
+    else:
+        loss_fct = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     for batch in tqdm(dataloader, desc='Training'):
         input_ids = batch['input_ids'].to(device)
@@ -160,9 +184,14 @@ def evaluate_model(model, dataloader, device, class_weights=None):
     all_labels = []
 
     if class_weights is not None:
-        loss_fct = nn.BCEWithLogitsLoss(pos_weight=class_weights.to(device))
+        pos_weight = class_weights.to(device)
     else:
-        loss_fct = nn.BCEWithLogitsLoss()
+        pos_weight = None
+
+    if getattr(model, 'loss_type', 'bce') == 'focal':
+        loss_fct = FocalLoss(pos_weight=pos_weight)
+    else:
+        loss_fct = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc='Evaluating'):
@@ -254,8 +283,11 @@ def run_kfold_training(config, comments, labels, tokenizer, device):
             'early_stopping_patience': config.early_stopping_patience,
             'author_name': config.author_name,
             'model_path': config.model_path,
-            'seed': config.seed,
-            'stratification_type': config.stratification_type
+            'stratification_type': config.stratification_type,
+            'use_class_weights': config.use_class_weights,
+            'scheduler_type': config.scheduler_type,
+            'loss_type': config.loss_type,
+            'pooling_type': config.pooling_type
         })
 
         kfold_splits = prepare_kfold_splits(
@@ -292,8 +324,10 @@ def run_kfold_training(config, comments, labels, tokenizer, device):
                 f'fold_{fold+1}_val_non_hate_samples': val_non_hate_count
             })
 
-            # No class weights needed for nearly balanced dataset
+            # Calculate class weights if enabled
             class_weights = None
+            if config.use_class_weights:
+                class_weights = calculate_class_weights(train_labels)
 
             # Use portable cache paths
             train_cache_path = os.path.join(cache_dir, f'train_cache_fold{fold}.pkl')
@@ -309,7 +343,15 @@ def run_kfold_training(config, comments, labels, tokenizer, device):
             val_loader = DataLoader(val_dataset, batch_size=config.batch, 
                                    shuffle=False, num_workers=2, pin_memory=True)
 
-            model = TransformerBinaryClassifier(config.model_path, dropout=config.dropout)
+            model = TransformerBinaryClassifier(
+                config.model_path, 
+                dropout=config.dropout,
+                pooling_type=config.pooling_type,
+                use_multi_layers=(config.pooling_type == 'multi') # Assuming 'multi' triggers multi-layer
+            )
+            # Add loss_type to model for evaluate_model to use
+            model.loss_type = config.loss_type
+            
             if config.freeze_base:
                 model.freeze_base_layers()
             model.to(device)
@@ -324,12 +366,23 @@ def run_kfold_training(config, comments, labels, tokenizer, device):
 
             optimizer = AdamW(model.parameters(), lr=config.lr, 
                             weight_decay=config.weight_decay, eps=1e-8)
+            # Add loss_type to optimizer for train_epoch to use
+            optimizer.loss_type = config.loss_type
+            
             total_steps = len(train_loader) * config.epochs
-            scheduler = get_linear_schedule_with_warmup(
-                optimizer,
-                num_warmup_steps=int(config.warmup_ratio * total_steps),
-                num_training_steps=total_steps
-            )
+            
+            if config.scheduler_type == 'cosine':
+                scheduler = get_cosine_schedule_with_warmup(
+                    optimizer,
+                    num_warmup_steps=int(config.warmup_ratio * total_steps),
+                    num_training_steps=total_steps
+                )
+            else:
+                scheduler = get_linear_schedule_with_warmup(
+                    optimizer,
+                    num_warmup_steps=int(config.warmup_ratio * total_steps),
+                    num_training_steps=total_steps
+                )
 
             best_macro_f1 = 0
             best_metrics = {}
@@ -354,10 +407,9 @@ def run_kfold_training(config, comments, labels, tokenizer, device):
                         mlflow.log_metric(f'fold_{fold+1}_best_epoch_val_macro_f1_th_{thresh}', 
                                         val_metrics[f'macro_f1_th_{thresh}'])
 
-                    if best_macro_f1 > best_overall_macro_f1:
                         best_overall_macro_f1 = best_macro_f1
                         best_fold_idx = fold
-                        best_fold_model = model.state_dict()
+                        best_fold_model = copy.deepcopy(model.state_dict())
                         best_overall_metrics = best_metrics.copy()
                         best_overall_epoch = best_epoch
                 else:
