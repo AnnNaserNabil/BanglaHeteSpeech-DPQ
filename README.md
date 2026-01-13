@@ -80,6 +80,10 @@ python
 | `baseline_prune_quant` | Baseline + Pruning + Quantization | Baseline → Prune → Quant |
 | `baseline_kd_prune_quant` | Full pipeline | Baseline → KD → Prune → Quant |
 
+## Hyperparameter Selection
+
+For a detailed analysis of why specific hyperparameters were chosen for each model, including alternative options and recommendations, see the [Hyperparameter Selection Guide](docs/HYPERPARAMETER_SELECTION.md).
+
 ## Configuration Options
 
 ### Training Parameters
