@@ -148,28 +148,50 @@ def run_compression_pipeline(config, comments, labels, tokenizer, device):
         current_model_name = "baseline"
         
         # =====================================================================
-        # STAGE 1: BASELINE TRAINING (Always)
+        # STAGE 1: BASELINE TRAINING (Always unless skipped)
         # =====================================================================
         print("\n" + "="*70)
         print("📚 STAGE 1: BASELINE TRAINING")
         print("="*70)
-        print("Using rigorous training methodology with threshold exploration...")
         
-        # Run original k-fold training (already has MLflow tracking)
-        baseline_results = run_kfold_training(config, comments, labels, tokenizer, device)
+        if config.skip_baseline:
+            print("⏭️  Skipping baseline training as requested (--skip_baseline)")
+            print(f"🔍 Using pre-trained teacher: {config.model_path}")
+            
+            # Create teacher model
+            teacher = TeacherModel(
+                model_name=config.model_path,
+                num_labels=1,
+                dropout=config.dropout
+            )
+            
+            # Load checkpoint if provided
+            if config.teacher_checkpoint and os.path.exists(config.teacher_checkpoint):
+                print(f"📥 Loading teacher checkpoint: {config.teacher_checkpoint}")
+                teacher.load_state_dict(torch.load(config.teacher_checkpoint, map_location=device))
+            elif config.teacher_checkpoint:
+                print(f"⚠️  Warning: Teacher checkpoint not found at {config.teacher_checkpoint}")
+                print("   Continuing with base model weights.")
+            
+            teacher.to(device)
+            baseline_results = {'best_model_path': 'pre-trained'}
+        else:
+            print("Using rigorous training methodology with threshold exploration...")
+            # Run original k-fold training (already has MLflow tracking)
+            baseline_results = run_kfold_training(config, comments, labels, tokenizer, device)
+            
+            # Load best model from training
+            print(f"\n📥 Loading best model from rigorous training: {baseline_results['best_model_path']}")
+            
+            teacher = TeacherModel(
+                model_name=config.model_path,
+                num_labels=1,
+                dropout=config.dropout
+            )
+            teacher.load_state_dict(torch.load(baseline_results['best_model_path']))
+            teacher.to(device)
+            
         pipeline_results['baseline'] = baseline_results
-        
-        # Load best model from training
-        print(f"\n📥 Loading best model from rigorous training: {baseline_results['best_model_path']}")
-        
-        teacher = TeacherModel(
-            model_name=config.model_path,
-            num_labels=1,
-            dropout=config.dropout
-        )
-        teacher.load_state_dict(torch.load(baseline_results['best_model_path']))
-        teacher.to(device)
-        
         current_model = teacher
         current_model_name = "teacher"
         
@@ -180,7 +202,7 @@ def run_compression_pipeline(config, comments, labels, tokenizer, device):
             'teacher_size_mb': teacher_params * 4 / (1024**2)  # Assuming FP32
         })
         
-        print("\n✅ Baseline training complete! Best model loaded for pipeline.")
+        print("\n✅ Baseline stage complete! Teacher model ready for pipeline.")
         
         # =====================================================================
         # STAGE 2: KNOWLEDGE DISTILLATION (Optional)

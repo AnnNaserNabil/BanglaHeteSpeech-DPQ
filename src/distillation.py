@@ -261,7 +261,9 @@ class TeacherModel(nn.Module):
             model.classifier.load_state_dict(classifier_state)
         else:
             # Assume it's a HuggingFace model path
-            # Need to create fresh model and load weights differently
+            # For HF models, we default to 1 label if not specified, 
+            # but usually the user will provide it or it will be in the config
+            num_labels = kwargs.pop('num_labels', 1)
             model = cls(model_name=load_path, num_labels=num_labels, **kwargs)
         
         return model.to(device)
@@ -406,6 +408,7 @@ class StudentModel(nn.Module):
             model.classifier.load_state_dict(classifier_state)
         else:
             # HuggingFace path
+            num_labels = kwargs.pop('num_labels', 1)
             model = cls(model_name=load_path, num_labels=num_labels, **kwargs)
         
         return model.to(device)

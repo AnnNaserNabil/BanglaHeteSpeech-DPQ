@@ -107,6 +107,10 @@ def parse_arguments():
                        help='Type of stratification for K-fold splitting.')
     parser.add_argument('--data_fraction', type=float, default=1.0,
                        help='Fraction of data to use for training (0.0-1.0).')
+    parser.add_argument('--skip_baseline', action='store_true',
+                       help='Skip the baseline training stage (use pre-trained teacher).')
+    parser.add_argument('--teacher_checkpoint', type=str, default=None,
+                       help='Path to a local teacher model checkpoint (.pt file).')
 
     # =========================================================================
     # MODEL PARAMETERS
