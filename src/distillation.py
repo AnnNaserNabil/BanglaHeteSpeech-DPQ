@@ -59,6 +59,7 @@ DISTILLATION METHODS:
 """
 
 import torch
+from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel, AutoConfig, AutoTokenizer
@@ -843,6 +844,44 @@ class DistillationTrainer:
         # Return losses as floats
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
     
+    def calculate_agreement(self, dataloader: DataLoader) -> float:
+        """
+        Calculate the agreement between teacher and student predictions.
+        (Fidelity metric)
+        """
+        self.student.eval()
+        self.teacher.eval()
+        
+        total_samples = 0
+        agreements = 0
+        
+        with torch.no_grad():
+            for batch in dataloader:
+                if 'student_input_ids' in batch:
+                    s_input_ids = batch['student_input_ids'].to(self.device)
+                    s_attention_mask = batch['student_attention_mask'].to(self.device)
+                    t_input_ids = batch['input_ids'].to(self.device)
+                    t_attention_mask = batch['attention_mask'].to(self.device)
+                else:
+                    s_input_ids = t_input_ids = batch['input_ids'].to(self.device)
+                    s_attention_mask = t_attention_mask = batch['attention_mask'].to(self.device)
+                
+                # Get teacher and student logits
+                t_outputs = self.teacher(t_input_ids, t_attention_mask)
+                s_outputs = self.student(s_input_ids, s_attention_mask)
+                
+                t_logits = t_outputs['logits'] if isinstance(t_outputs, dict) else t_outputs
+                s_logits = s_outputs['logits'] if isinstance(s_outputs, dict) else s_outputs
+                
+                # Binary predictions
+                t_preds = (torch.sigmoid(t_logits) > 0.5).int()
+                s_preds = (torch.sigmoid(s_logits) > 0.5).int()
+                
+                agreements += (t_preds == s_preds).sum().item()
+                total_samples += t_preds.size(0)
+        
+        return agreements / total_samples if total_samples > 0 else 0.0
+
     @torch.no_grad()
     def evaluate(
         self,

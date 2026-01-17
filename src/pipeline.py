@@ -219,15 +219,15 @@ def run_compression_pipeline(config, comments, labels, tokenizer, device):
             
             # Log KD metrics to MLflow
             mlflow.log_metrics({
-                'kd_accuracy': kd_results['best_metrics']['accuracy'],
-                'kd_macro_f1': kd_results['best_metrics']['macro_f1'],
-                'kd_f1_hate': kd_results['best_metrics']['f1'],
-                'kd_f1_non_hate': kd_results['best_metrics']['f1_negative'],
-                'kd_roc_auc': kd_results['best_metrics']['roc_auc'],
-                'kd_best_threshold': kd_results['best_metrics']['best_threshold'],
-                'student_total_params': kd_results['student_params'],
-                'student_size_mb': kd_results['student_params'] * 4 / (1024**2),
-                'compression_ratio': kd_results['teacher_params'] / kd_results['student_params']
+                'kd_accuracy': kd_results['best_metrics'].get('acc_exact', 0),
+                'kd_macro_f1': kd_results['best_metrics'].get('f1_macro', 0),
+                'kd_f1_hate': kd_results['best_metrics'].get('f1_hate', 0),
+                'kd_roc_auc': kd_results['best_metrics'].get('roc_auc_macro', 0),
+                'kd_best_threshold': kd_results['best_metrics'].get('best_threshold', 0.5),
+                'kd_agreement': kd_results.get('agreement', 0),
+                'kd_speedup': kd_results.get('speedup', 1.0),
+                'kd_compression_ratio': kd_results.get('compression_ratio', 1.0),
+                'student_size_mb': kd_results['best_metrics'].get('size_mb', 0)
             })
             
             # Update current model to student
@@ -432,11 +432,53 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
     if best_student_state is not None:
         student.load_state_dict(best_student_state)
     
+    # Comprehensive Evaluation
+    print("\n🔍 Performing comprehensive evaluation of Student model...")
+    evaluator = CompressionEvaluator(
+        label_columns=['hate'],
+        label_priority={'hate': 1}
+    )
+    
+    # Evaluate Teacher as baseline for KD stage
+    teacher_metrics = evaluator.evaluate_model(
+        teacher, val_loader, device, stage='kd_teacher',
+        measure_latency=True, config=vars(config)
+    )
+    
+    # Evaluate Student
+    student_metrics = evaluator.evaluate_model(
+        student, val_loader, device, stage='kd_student',
+        measure_latency=True, use_student_input_ids=(student_tokenizer is not None),
+        config=vars(config)
+    )
+    
+    # Calculate Fidelity (Agreement)
+    agreement = trainer.calculate_agreement(val_loader)
+    print(f"🤝 Teacher-Student Agreement: {agreement:.4f}")
+    
+    # Calculate Ratios
+    compression_ratio = teacher_metrics.model_size_mb / max(student_metrics.model_size_mb, 0.01)
+    speedup = teacher_metrics.inference_latency_mean_ms / max(student_metrics.inference_latency_mean_ms, 0.01)
+    
+    print(f"📦 Compression Ratio: {compression_ratio:.2f}x")
+    print(f"⚡ Speedup Ratio: {speedup:.2f}x")
+    
+    # Log to MLflow
+    mlflow.log_metrics({
+        'kd_agreement': agreement,
+        'kd_compression_ratio': compression_ratio,
+        'kd_speedup': speedup,
+        'kd_student_latency_ms': student_metrics.inference_latency_mean_ms,
+        'kd_student_throughput': student_metrics.throughput_samples_per_sec
+    })
+    
     return {
         'student_model': student,
-        'best_metrics': best_metrics,
-        'teacher_params': sum(p.numel() for p in teacher.parameters()),
-        'student_params': sum(p.numel() for p in student.parameters())
+        'best_metrics': student_metrics.to_flat_dict(),
+        'teacher_metrics': teacher_metrics.to_flat_dict(),
+        'agreement': agreement,
+        'compression_ratio': compression_ratio,
+        'speedup': speedup
     }
 
 
@@ -615,37 +657,41 @@ def _print_pipeline_summary(results, config):
     if results['baseline']:
         stages.append(('Baseline', results['baseline']))
     if results['kd']:
-        stages.append(('KD Student', results['kd']['best_metrics']))
+        stages.append(('KD Student', results['kd']))
     if results['pruning']:
-        stages.append(('Pruned', results['pruning']['best_metrics']))
+        stages.append(('Pruned', results['pruning']))
     if results['quantization']:
-        stages.append(('Quantized', results['quantization']['best_metrics']))
+        stages.append(('Quantized', results['quantization']))
     
     # Print comparison table
     print("\nStage Comparison:")
-    print("-" * 70)
-    print(f"{'Stage':<20} {'Accuracy':<12} {'Macro F1':<12} {'F1 (Hate)':<12}")
-    print("-" * 70)
+    print("-" * 90)
+    print(f"{'Stage':<20} {'Accuracy':<12} {'Macro F1':<12} {'Speedup':<12} {'Agreement':<12}")
+    print("-" * 90)
     
     for stage_name, stage_results in stages:
         if isinstance(stage_results, list):  # Old format compatibility
-            # Get mean from fold results
             acc = np.mean([r.get('accuracy', 0) for r in stage_results])
             macro_f1 = np.mean([r.get('macro_f1', 0) for r in stage_results])
-            f1 = np.mean([r.get('f1', 0) for r in stage_results])
-        elif isinstance(stage_results, dict) and 'best_metrics' in stage_results:
-            # New format from run_kfold_training
-            acc = stage_results['best_metrics'].get('accuracy', 0)
-            macro_f1 = stage_results['best_metrics'].get('macro_f1', 0)
-            f1 = stage_results['best_metrics'].get('f1', 0)
+            speedup = 1.0
+            agreement = 1.0
+        elif isinstance(stage_results, dict):
+            # Check for new format (CompressionStageMetrics.to_flat_dict)
+            metrics = stage_results.get('best_metrics', stage_results)
+            acc = metrics.get('acc_exact', metrics.get('accuracy', 0))
+            macro_f1 = metrics.get('f1_macro', metrics.get('macro_f1', 0))
+            
+            speedup = stage_results.get('speedup', 1.0)
+            agreement = stage_results.get('agreement', 1.0)
         else:
-            acc = stage_results.get('accuracy', 0)
-            macro_f1 = stage_results.get('macro_f1', 0)
-            f1 = stage_results.get('f1', 0)
+            acc = getattr(stage_results, 'accuracy', 0)
+            macro_f1 = getattr(stage_results, 'macro_f1', 0)
+            speedup = 1.0
+            agreement = 1.0
         
-        print(f"{stage_name:<20} {acc:<12.4f} {macro_f1:<12.4f} {f1:<12.4f}")
+        print(f"{stage_name:<20} {acc:<12.4f} {macro_f1:<12.4f} {speedup:<12.2f} {agreement:<12.4f}")
     
-    print("-" * 70)
+    print("-" * 90)
 
 
 def _create_pipeline_summary_df(results):
@@ -678,35 +724,42 @@ def _create_pipeline_summary_df(results):
     
     # KD
     if results['kd']:
+        metrics = results['kd']['best_metrics']
         summary_data.append({
             'Stage': 'KD Student',
-            'Accuracy': results['kd']['best_metrics'].get('accuracy', 0),
-            'Macro F1': results['kd']['best_metrics'].get('macro_f1', 0),
-            'F1 (Hate)': results['kd']['best_metrics'].get('f1', 0),
-            'F1 (Non-Hate)': results['kd']['best_metrics'].get('f1_negative', 0),
-            'ROC-AUC': results['kd']['best_metrics'].get('roc_auc', 0)
+            'Accuracy': metrics.get('acc_exact', metrics.get('accuracy', 0)),
+            'Macro F1': metrics.get('f1_macro', metrics.get('macro_f1', 0)),
+            'F1 (Hate)': metrics.get('f1_hate', metrics.get('f1', 0)),
+            'ROC-AUC': metrics.get('roc_auc_macro', metrics.get('roc_auc', 0)),
+            'Speedup': results['kd'].get('speedup', 1.0),
+            'Agreement': results['kd'].get('agreement', 1.0),
+            'Size (MB)': metrics.get('size_mb', 0)
         })
     
     # Pruning
     if results['pruning']:
+        metrics = results['pruning']['best_metrics']
         summary_data.append({
             'Stage': 'Pruned',
-            'Accuracy': results['pruning']['best_metrics'].get('accuracy', 0),
-            'Macro F1': results['pruning']['best_metrics'].get('macro_f1', 0),
-            'F1 (Hate)': results['pruning']['best_metrics'].get('f1', 0),
-            'F1 (Non-Hate)': results['pruning']['best_metrics'].get('f1_negative', 0),
-            'ROC-AUC': results['pruning']['best_metrics'].get('roc_auc', 0)
+            'Accuracy': metrics.get('acc_exact', metrics.get('accuracy', 0)),
+            'Macro F1': metrics.get('f1_macro', metrics.get('macro_f1', 0)),
+            'F1 (Hate)': metrics.get('f1_hate', metrics.get('f1', 0)),
+            'ROC-AUC': metrics.get('roc_auc_macro', metrics.get('roc_auc', 0)),
+            'Speedup': results['pruning'].get('speedup', 1.0),
+            'Size (MB)': metrics.get('size_mb', 0)
         })
     
     # Quantization
     if results['quantization']:
+        metrics = results['quantization']['best_metrics']
         summary_data.append({
             'Stage': 'Quantized',
-            'Accuracy': results['quantization']['best_metrics'].get('accuracy', 0),
-            'Macro F1': results['quantization']['best_metrics'].get('macro_f1', 0),
-            'F1 (Hate)': results['quantization']['best_metrics'].get('f1', 0),
-            'F1 (Non-Hate)': results['quantization']['best_metrics'].get('f1_negative', 0),
-            'ROC-AUC': results['quantization']['best_metrics'].get('roc_auc', 0)
+            'Accuracy': metrics.get('acc_exact', metrics.get('accuracy', 0)),
+            'Macro F1': metrics.get('f1_macro', metrics.get('macro_f1', 0)),
+            'F1 (Hate)': metrics.get('f1_hate', metrics.get('f1', 0)),
+            'ROC-AUC': metrics.get('roc_auc_macro', metrics.get('roc_auc', 0)),
+            'Speedup': results['quantization'].get('speedup', 1.0),
+            'Size (MB)': metrics.get('size_mb', 0)
         })
     
     return pd.DataFrame(summary_data)
