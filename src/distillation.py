@@ -841,8 +841,12 @@ class DistillationTrainer:
             torch.nn.utils.clip_grad_norm_(self.student.parameters(), self.config.gradient_clip_norm)
             optimizer.step()
         
-        # Return losses as floats
-        return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
+        # Return losses and outputs
+        return {
+            'loss': loss_dict['total_loss'].item() if torch.is_tensor(loss_dict['total_loss']) else loss_dict['total_loss'],
+            'logits': student_outputs['logits'].detach(),
+            'labels': labels.detach()
+        }
     
     def calculate_agreement(self, dataloader: DataLoader) -> float:
         """

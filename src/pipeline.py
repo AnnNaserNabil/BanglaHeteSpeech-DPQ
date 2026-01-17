@@ -397,40 +397,74 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
     # Training loop with enhanced metrics
     best_macro_f1 = 0
     best_metrics = {}
+    best_train_metrics = {}
     best_student_state = None
+    best_epoch = 0
+    
+    # Early Stopping
+    patience = config.early_stopping_patience
+    patience_counter = 0
     
     for epoch in range(config.epochs):
         # Train
         student.train()
         epoch_losses = []
+        all_train_preds = []
+        all_train_labels = []
         
         pbar = tqdm(train_loader, desc=f"KD Epoch {epoch+1}/{config.epochs}")
         for batch in pbar:
-            losses = trainer.train_step(batch, optimizer)
+            outputs = trainer.train_step(batch, optimizer)
             scheduler.step()
-            epoch_losses.append(losses['total_loss'])
-            pbar.set_postfix({'loss': f"{losses['total_loss']:.4f}"})
+            
+            loss = outputs['loss']
+            epoch_losses.append(loss)
+            pbar.set_postfix({'loss': f"{loss:.4f}"})
+            
+            # Accumulate predictions for training metrics
+            preds = torch.sigmoid(outputs['logits']).cpu().numpy()
+            labels = outputs['labels'].cpu().numpy()
+            all_train_preds.extend(preds)
+            all_train_labels.extend(labels)
+        
+        # Calculate Training Metrics
+        train_metrics = calculate_metrics_with_threshold_exploration(
+            np.array(all_train_labels),
+            np.array(all_train_preds)
+        )
+        train_metrics['loss'] = np.mean(epoch_losses)
         
         # Evaluate with enhanced metrics
         eval_results = trainer.evaluate(val_loader)
         
-        # Calculate metrics with threshold exploration
-        metrics = calculate_metrics_with_threshold_exploration(
+        # Calculate Validation Metrics
+        val_metrics = calculate_metrics_with_threshold_exploration(
             eval_results['labels'],
             eval_results['predictions']
         )
-        metrics['loss'] = eval_results['loss']
+        val_metrics['loss'] = eval_results['loss']
         
-        print_metrics_summary(metrics, f"KD Epoch {epoch+1} Validation")
+        print_metrics_summary(val_metrics, f"KD Epoch {epoch+1} Validation")
         
-        if metrics['macro_f1'] > best_macro_f1:
-            best_macro_f1 = metrics['macro_f1']
-            best_metrics = metrics.copy()
+        # Check for improvement
+        if val_metrics['macro_f1'] > best_macro_f1:
+            best_macro_f1 = val_metrics['macro_f1']
+            best_metrics = val_metrics.copy()
+            best_train_metrics = train_metrics.copy()
             best_student_state = copy.deepcopy(student.state_dict())
+            best_epoch = epoch + 1
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience:
+            print(f"\n🛑 Early stopping triggered at epoch {epoch+1}")
+            break
     
     # Load best state before returning
     if best_student_state is not None:
         student.load_state_dict(best_student_state)
+        print(f"\n✅ Loaded best model from Epoch {best_epoch} (Macro F1: {best_macro_f1:.4f})")
     
     # Comprehensive Evaluation
     print("\n🔍 Performing comprehensive evaluation of Student model...")
@@ -469,12 +503,14 @@ def _run_knowledge_distillation_stage(teacher, comments, labels, tokenizer, conf
         'kd_compression_ratio': compression_ratio,
         'kd_speedup': speedup,
         'kd_student_latency_ms': student_metrics.inference_latency_mean_ms,
-        'kd_student_throughput': student_metrics.throughput_samples_per_sec
+        'kd_student_throughput': student_metrics.throughput_samples_per_sec,
+        'kd_best_epoch': best_epoch
     })
     
     return {
         'student_model': student,
-        'best_metrics': student_metrics.to_flat_dict(),
+        'best_metrics': best_metrics,
+        'best_train_metrics': best_train_metrics,
         'teacher_metrics': teacher_metrics.to_flat_dict(),
         'agreement': agreement,
         'compression_ratio': compression_ratio,
@@ -628,7 +664,15 @@ def _run_quantization_stage(model, comments, labels, tokenizer, config, device, 
                 attention_mask = batch['attention_mask'].to(eval_device)
                 
             outputs = quantized_model(input_ids, attention_mask)
-            logits = outputs['logits'] if isinstance(outputs, dict) else outputs
+            
+            # Handle different output formats (dict, tuple, or raw tensor)
+            if isinstance(outputs, dict):
+                logits = outputs.get('logits', outputs.get('last_hidden_state'))
+            elif isinstance(outputs, (list, tuple)):
+                logits = outputs[0]
+            else:
+                logits = outputs
+                
             preds = torch.sigmoid(logits).cpu().numpy()
             all_preds.extend(preds)
             all_labels.extend(batch['labels'].numpy())
@@ -725,12 +769,25 @@ def _create_pipeline_summary_df(results):
     # KD
     if results['kd']:
         metrics = results['kd']['best_metrics']
+        train_metrics = results['kd'].get('best_train_metrics', {})
+        
         summary_data.append({
             'Stage': 'KD Student',
             'Accuracy': metrics.get('acc_exact', metrics.get('accuracy', 0)),
             'Macro F1': metrics.get('f1_macro', metrics.get('macro_f1', 0)),
             'F1 (Hate)': metrics.get('f1_hate', metrics.get('f1', 0)),
+            'F1 (Non-Hate)': metrics.get('f1_negative', 0),
+            'Precision (Hate)': metrics.get('precision', 0),
+            'Recall (Hate)': metrics.get('recall', 0),
+            'Precision (Non-Hate)': metrics.get('precision_negative', 0),
+            'Recall (Non-Hate)': metrics.get('recall_negative', 0),
             'ROC-AUC': metrics.get('roc_auc_macro', metrics.get('roc_auc', 0)),
+            'Val Loss': metrics.get('loss', 0),
+            'Best Threshold': metrics.get('best_threshold', 0.5),
+            'Train Accuracy': train_metrics.get('accuracy', 0),
+            'Train Macro F1': train_metrics.get('macro_f1', 0),
+            'Train F1 (Hate)': train_metrics.get('f1', 0),
+            'Train Loss': train_metrics.get('loss', 0),
             'Speedup': results['kd'].get('speedup', 1.0),
             'Agreement': results['kd'].get('agreement', 1.0),
             'Size (MB)': metrics.get('size_mb', 0)

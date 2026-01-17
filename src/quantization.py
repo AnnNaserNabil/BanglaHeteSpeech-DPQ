@@ -541,6 +541,7 @@ def apply_int4_quantization(model: nn.Module, device: str) -> nn.Module:
     import os
     import shutil
     from distillation import StudentModel, TeacherModel
+    from model import TransformerBinaryClassifier
 
     # We need to save the current model state first because bitsandbytes 
     # quantizes upon loading.
@@ -566,34 +567,45 @@ def apply_int4_quantization(model: nn.Module, device: str) -> nn.Module:
     )
     
     # Reload using the appropriate class
-    if isinstance(model, StudentModel):
-        quantized_model = StudentModel.from_pretrained(
-            temp_dir,
-            device=device,
-            quantization_config=quantization_config,
-            device_map=device
-        )
-        # Fix for dtype mismatch: classifier remains FP32 while encoder is quantized to FP16 compute
-        if quantization_config.bnb_4bit_compute_dtype == torch.float16:
-             quantized_model.classifier.half()
-    elif isinstance(model, TeacherModel):
-        quantized_model = TeacherModel.from_pretrained(
-            temp_dir,
-            device=device,
-            quantization_config=quantization_config,
-            device_map=device
-        )
-        # Fix for dtype mismatch
-        if quantization_config.bnb_4bit_compute_dtype == torch.float16:
-             quantized_model.classifier.half()
+    model_class = type(model)
+    print(f"   2. Reloading with INT4 quantization using class: {model_class.__name__}...")
+    
+    if hasattr(model_class, 'from_pretrained'):
+        try:
+            quantized_model = model_class.from_pretrained(
+                temp_dir,
+                device=device,
+                quantization_config=quantization_config,
+                device_map=device
+            )
+        except Exception as e:
+            print(f"   ⚠️  Warning: Failed to reload with {model_class.__name__}.from_pretrained: {e}")
+            print("   Falling back to AutoModelForSequenceClassification...")
+            from transformers import AutoModelForSequenceClassification
+            quantized_model = AutoModelForSequenceClassification.from_pretrained(
+                temp_dir,
+                quantization_config=quantization_config,
+                device_map=device
+            )
     else:
-        # Fallback to AutoModel (might fail if custom head)
+        # Fallback to AutoModel
         from transformers import AutoModel
         quantized_model = AutoModel.from_pretrained(
             temp_dir,
             quantization_config=quantization_config,
             device_map=device
         )
+    
+    # Fix for dtype mismatch: classifier remains FP32 while encoder is quantized to FP16 compute
+    if quantization_config.bnb_4bit_compute_dtype == torch.float16:
+        if hasattr(quantized_model, 'classifier'):
+            if isinstance(quantized_model.classifier, nn.Module):
+                quantized_model.classifier.half()
+            elif isinstance(quantized_model.classifier, list):
+                # Handle cases where classifier might be a list of modules (unlikely but safe)
+                for m in quantized_model.classifier:
+                    if hasattr(m, 'half'):
+                        m.half()
     
     # Cleanup
     if os.path.exists(temp_dir):

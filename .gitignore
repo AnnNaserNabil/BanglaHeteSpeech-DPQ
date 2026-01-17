@@ -32,7 +32,6 @@ temp_*/
 *.pt
 *.pth
 *.bin
-*.csv
 *.json
 !README.md
 !KAGGLE_INSTRUCTIONS.md

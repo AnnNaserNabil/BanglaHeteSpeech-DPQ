@@ -3,6 +3,8 @@ Generic Transformer-based Binary Classifier for Hate Speech Detection
 Supports any transformer model (BERT, RoBERTa, etc.) through AutoModel
 """
 
+import os
+import json
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig
@@ -88,6 +90,65 @@ class TransformerBinaryClassifier(nn.Module):
             loss = loss_fct(logits, labels)
 
         return {'loss': loss, 'logits': logits}
+
+
+    def save_pretrained(self, save_path):
+        """
+        Save the model in a format that can be reloaded.
+        """
+        os.makedirs(save_path, exist_ok=True)
+        
+        # Save encoder
+        self.encoder.save_pretrained(os.path.join(save_path, 'encoder'))
+        
+        # Save classifier
+        torch.save(
+            self.classifier.state_dict(),
+            os.path.join(save_path, 'classifier.pt')
+        )
+        
+        # Save config
+        config = {
+            'model_name': self.encoder.config._name_or_path,
+            'pooling_type': self.pooling_type,
+            'use_multi_layers': self.use_multi_layers,
+            'dropout': self.classifier[2].p if len(self.classifier) > 2 else 0.1
+        }
+        with open(os.path.join(save_path, 'model_config.json'), 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        print(f"✅ Model saved to: {save_path}")
+
+    @classmethod
+    def from_pretrained(cls, load_path, device='cpu', **kwargs):
+        """
+        Load a pre-trained model.
+        """
+        config_path = os.path.join(load_path, 'model_config.json')
+        
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            
+            model = cls(
+                model_name=os.path.join(load_path, 'encoder'),
+                dropout=config.get('dropout', 0.1),
+                pooling_type=config.get('pooling_type', 'cls'),
+                use_multi_layers=config.get('use_multi_layers', False),
+                **kwargs
+            )
+            
+            # Load classifier weights
+            classifier_path = os.path.join(load_path, 'classifier.pt')
+            if os.path.exists(classifier_path):
+                classifier_state = torch.load(classifier_path, map_location=device)
+                model.classifier.load_state_dict(classifier_state)
+        else:
+            # Fallback to loading as a standard HF model if possible, 
+            # though this class is specifically for our custom head.
+            model = cls(model_name=load_path, **kwargs)
+            
+        return model.to(device)
 
 
     def freeze_base_layers(self):
